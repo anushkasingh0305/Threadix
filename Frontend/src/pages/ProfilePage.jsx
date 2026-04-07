@@ -3,10 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/api/client'
 import { authApi } from '@/api/auth'
+import { threadsApi } from '@/api/threads'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { useAuthStore } from '@/store/authStore'
+import { ThreadCard } from '@/components/thread/ThreadCard'
 import { formatDistanceToNow } from 'date-fns'
-import { Pencil, X } from 'lucide-react'
+import { Pencil, X, Lock } from 'lucide-react'
 
 export function ProfilePage() {
   const { username } = useParams()
@@ -19,6 +21,11 @@ export function ProfilePage() {
   const [newBio,      setNewBio]      = useState('')
   const [avatarFile,  setAvatarFile]  = useState(null)
   const [editError,   setEditError]   = useState('')
+  const [changingPw,   setChangingPw]   = useState(false)
+  const [currentPw,    setCurrentPw]    = useState('')
+  const [newPw,        setNewPw]        = useState('')
+  const [pwError,      setPwError]      = useState('')
+  const [pwSuccess,    setPwSuccess]    = useState('')
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['profile', username],
@@ -27,6 +34,12 @@ export function ProfilePage() {
   })
 
   const isOwnProfile = user?.username === username
+
+  const { data: userThreads } = useQuery({
+    queryKey: ['userThreads', username],
+    queryFn:  () => threadsApi.getByUser(username).then(r => r.data),
+    enabled:  !!username,
+  })
 
   const openEdit = () => {
     setNewUsername(profile?.username ?? '')
@@ -57,6 +70,21 @@ export function ProfilePage() {
     },
     onError: (e) => {
       setEditError(e?.response?.data?.detail ?? 'Update failed')
+    },
+  })
+
+  const pwMut = useMutation({
+    mutationFn: () => authApi.changePassword({ current_password: currentPw, new_password: newPw }),
+    onSuccess: () => {
+      setPwSuccess('Password changed successfully')
+      setPwError('')
+      setCurrentPw('')
+      setNewPw('')
+      setTimeout(() => { setChangingPw(false); setPwSuccess('') }, 1500)
+    },
+    onError: (e) => {
+      setPwError(e?.response?.data?.detail ?? 'Password change failed')
+      setPwSuccess('')
     },
   })
 
@@ -101,6 +129,62 @@ export function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* Change password */}
+        {isOwnProfile && (
+          <div className='card mb-6'>
+            <div className='flex items-center justify-between'>
+              <h2 className='text-sm font-semibold text-gray-700 flex items-center gap-1.5'>
+                <Lock className='w-3.5 h-3.5' /> Password
+              </h2>
+              {!changingPw && (
+                <button onClick={() => { setChangingPw(true); setPwError(''); setPwSuccess('') }}
+                  className='text-xs text-gray-500 border rounded-lg px-2 py-1 hover:bg-gray-50'>
+                  Change password
+                </button>
+              )}
+            </div>
+            {changingPw && (
+              <div className='mt-4 space-y-3'>
+                <div>
+                  <label className='text-sm font-medium text-gray-700'>Current password</label>
+                  <input type='password' value={currentPw} onChange={e => setCurrentPw(e.target.value)}
+                    className='mt-1 w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-light' />
+                </div>
+                <div>
+                  <label className='text-sm font-medium text-gray-700'>New password (min 6 chars)</label>
+                  <input type='password' value={newPw} onChange={e => setNewPw(e.target.value)}
+                    className='mt-1 w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-light' />
+                </div>
+                {pwError && <p className='text-sm text-red-500'>{pwError}</p>}
+                {pwSuccess && <p className='text-sm text-green-600'>{pwSuccess}</p>}
+                <div className='flex gap-2'>
+                  <button onClick={() => pwMut.mutate()}
+                    disabled={pwMut.isPending || !currentPw || newPw.length < 6}
+                    className='px-4 py-2 text-sm bg-brand text-white rounded-lg hover:bg-brand-light disabled:opacity-50'>
+                    {pwMut.isPending ? 'Saving...' : 'Update password'}
+                  </button>
+                  <button onClick={() => { setChangingPw(false); setPwError(''); setPwSuccess('') }}
+                    className='px-4 py-2 text-sm border rounded-lg hover:bg-gray-50'>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* User's threads */}
+        <h2 className='text-base font-semibold text-gray-900 mb-3'>
+          {isOwnProfile ? 'Your threads' : `${profile.username}'s threads`}
+        </h2>
+        {userThreads?.threads?.length > 0 ? (
+          <div className='space-y-3'>
+            {userThreads.threads.map(t => (
+              <ThreadCard key={t.id} thread={t} />
+            ))}
+          </div>
+        ) : (
+          <p className='text-sm text-gray-400'>No threads yet.</p>
+        )}
       </div>
 
       {/* Edit modal */}

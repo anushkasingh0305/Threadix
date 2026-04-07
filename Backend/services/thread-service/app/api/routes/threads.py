@@ -49,6 +49,17 @@ async def list_threads(
     return {'threads': threads, 'total': total, 'limit': limit, 'offset': offset}
 
 
+@router.get('/user/{username}')
+async def list_user_threads(
+    username: str,
+    limit: int = Query(DEFAULT_PAGE_SIZE, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    threads, total = await ThreadRepository.get_by_username(db, username, limit, offset)
+    return {'threads': threads, 'total': total, 'limit': limit, 'offset': offset}
+
+
 @router.get('/{thread_id}')
 async def get_one(
     thread_id: int,

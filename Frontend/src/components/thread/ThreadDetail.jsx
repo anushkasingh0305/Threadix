@@ -17,8 +17,8 @@ export function ThreadDetail({ thread }) {
   const [editTitle, setEditTitle] = useState(thread.title)
   const [editDesc,  setEditDesc]  = useState(thread.description)
 
-  const canEdit   = user && user.id === thread.author.id
-  const canDelete = user && (user.id === thread.author.id || isModerator)
+  const canEdit   = user && Number(user.id) === Number(thread.author.id)
+  const canDelete = user && (Number(user.id) === Number(thread.author.id) || isModerator)
 
   const likeMut = useMutation({
     mutationFn: () => threadsApi.toggleLike(thread.id),
@@ -40,8 +40,11 @@ export function ThreadDetail({ thread }) {
       {/* Author row */}
       <div className='flex items-center gap-2 mb-3'>
         <div className='w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center
-                        text-xs font-medium text-blue-700'>
-          {thread.author.username.slice(0, 2).toUpperCase()}
+                        text-xs font-medium text-blue-700 overflow-hidden'>
+          {thread.author.avatar_url
+            ? <img src={thread.author.avatar_url} alt={thread.author.username}
+                className='w-8 h-8 rounded-full object-cover' />
+            : thread.author.username.slice(0, 2).toUpperCase()}
         </div>
         <div>
           <Link to={`/profile/${thread.author.username}`}

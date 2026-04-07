@@ -4,7 +4,7 @@ import { notifsApi } from '@/api/notifications'
 import { formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/utils'
 
-const TYPE_ICON = { reply: '💬', mention: '@', like: '♥' }
+const TYPE_ICON = { reply: '💬', mention: '@', like: '♥', comment: '💬' }
 
 export function NotifDropdown() {
   const { data } = useQuery({

@@ -34,6 +34,7 @@ class NotificationRepository:
     async def get_for_user(
         db: AsyncSession, user_id: int, limit: int, offset: int
     ):
+        from app.db.models import UserCache
         q = select(Notification).where(Notification.recipient_id == user_id)
         total = await db.scalar(select(func.count()).select_from(q.subquery()))
         unread = await db.scalar(
@@ -45,7 +46,17 @@ class NotificationRepository:
         result = await db.execute(
             q.order_by(Notification.created_at.desc()).limit(limit).offset(offset)
         )
-        return result.scalars().all(), total, unread
+        notifs = result.scalars().all()
+
+        # Resolve actor usernames from users_cache
+        enriched = []
+        for n in notifs:
+            actor = await db.scalar(select(UserCache).where(UserCache.id == n.actor_id))
+            d = {c.name: getattr(n, c.name) for c in n.__table__.columns}
+            d['actor_username'] = actor.username if actor else f'user_{n.actor_id}'
+            enriched.append(d)
+
+        return enriched, total, unread
 
     @staticmethod
     async def mark_read(db: AsyncSession, notif_id: int, user_id: int):

@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update, delete, and_
 from sqlalchemy.orm import selectinload
-from app.db.models import Thread, ThreadTag, Tag, Like, UserTagAffinity
+from app.db.models import Thread, ThreadTag, Tag, Like, UserTagAffinity, UserCache
 from typing import Optional
 
 
@@ -83,6 +83,26 @@ class ThreadRepository:
     async def get_list(db: AsyncSession, limit: int, offset: int):
         """Returns (threads, total_count) for pagination."""
         q = select(Thread).where(Thread.is_deleted == False)
+        total = await db.scalar(select(func.count()).select_from(q.subquery()))
+        result = await db.execute(
+            q.options(selectinload(Thread.author), selectinload(Thread.tags))
+            .order_by(Thread.created_at.desc())
+            .limit(limit).offset(offset)
+        )
+        return result.scalars().all(), total
+
+    @staticmethod
+    async def get_by_username(db: AsyncSession, username: str,
+                              limit: int, offset: int):
+        """Returns (threads, total_count) for a specific user."""
+        user = await db.scalar(
+            select(UserCache).where(UserCache.username == username)
+        )
+        if not user:
+            return [], 0
+        q = select(Thread).where(
+            and_(Thread.user_id == user.id, Thread.is_deleted == False)
+        )
         total = await db.scalar(select(func.count()).select_from(q.subquery()))
         result = await db.execute(
             q.options(selectinload(Thread.author), selectinload(Thread.tags))

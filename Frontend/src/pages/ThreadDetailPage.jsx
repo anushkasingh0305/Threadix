@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { threadsApi }  from '@/api/threads'
 import { commentsApi } from '@/api/comments'
-import { ThreadCard }  from '@/components/thread/ThreadCard'
+import { ThreadDetail } from '@/components/thread/ThreadDetail'
 import { CommentNode } from '@/components/comment/CommentNode'
 import { CommentInput } from '@/components/comment/CommentInput'
 import { PageLayout }  from '@/components/layout/PageLayout'
@@ -46,7 +46,7 @@ export function ThreadDetailPage() {
   return (
     <PageLayout>
       <div className='max-w-2xl'>
-        <ThreadCard thread={thread} />
+        <ThreadDetail thread={thread} />
 
         <div className='mt-6'>
           <h2 className='text-sm font-semibold text-gray-700 mb-3'>

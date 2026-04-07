@@ -1,6 +1,7 @@
 from sqlalchemy.future import select
 from app.db.models import User
 from app.core.hashing import verify_password, hash_password
+from app.db.redis import publish_profile_update
 import cloudinary.uploader
 
 async def update_user_profile(db, user_id, username=None, bio=None, file=None):
@@ -43,6 +44,10 @@ async def update_user_profile(db, user_id, username=None, bio=None, file=None):
 
     await db.commit()
     await db.refresh(user)
+
+    # Notify thread-service via Redis stream to update users_cache
+    await publish_profile_update(user.id, user.username, user.avatar_url)
+
     return user
 
 

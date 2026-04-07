@@ -8,14 +8,14 @@ export function AdminDashboard() {
     queryFn: () => apiClient.get('/api/auth/user/list').then(r => r.data),
   })
 
-  const updateRole = async (userId, role) => {
-    await apiClient.patch(`/api/auth/user/${userId}/role`, { role })
+  const updateRole = async (username, role) => {
+    await apiClient.put(`/api/auth/user/role/${username}`, null, { params: { role } })
     refetch()
   }
 
   const deleteUser = async (userId) => {
     if (!confirm('Delete this user?')) return
-    await apiClient.delete(`/api/auth/user/${userId}`)
+    await apiClient.delete(`/api/auth/user/delete/${userId}`)
     refetch()
   }
 
@@ -54,7 +54,7 @@ export function AdminDashboard() {
                   <td className='px-4 py-3 text-gray-500'>{u.email}</td>
                   <td className='px-4 py-3'>
                     <select defaultValue={u.role}
-                      onChange={e => updateRole(u.id, e.target.value)}
+                      onChange={e => updateRole(u.username, e.target.value)}
                       className='text-xs border rounded px-2 py-1 bg-white'>
                       <option value='member'>member</option>
                       <option value='moderator'>moderator</option>

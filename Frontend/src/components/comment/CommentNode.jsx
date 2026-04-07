@@ -65,8 +65,11 @@ export function CommentNode({ comment, threadId }) {
         ) : (
           <>
             <div className='flex items-center gap-2 mb-1.5'>
-              <div className='w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-700'>
-                {comment.author?.username.slice(0, 2).toUpperCase()}
+              <div className='w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-700 overflow-hidden'>
+                {comment.author?.avatar_url
+                  ? <img src={comment.author.avatar_url} alt={comment.author.username}
+                      className='w-5 h-5 rounded-full object-cover' />
+                  : comment.author?.username.slice(0, 2).toUpperCase()}
               </div>
               <span className='text-xs font-medium'>{comment.author?.username}</span>
               <span className='text-xs text-gray-400'>

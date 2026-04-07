@@ -71,3 +71,18 @@ async def get_cached_thread(thread_id: int) -> dict | None:
 async def invalidate_thread_cache(thread_id: int):
     r = await get_redis()
     await r.delete(f'thread:{thread_id}')
+
+
+# ─── Redis Stream consumer ───────────────────────────────────────────────────
+
+async def consume_profile_updates(last_id: str = '0-0'):
+    """
+    Blocking read from the user_profile_updates stream.
+    Returns list of (message_id, fields_dict) tuples.
+    """
+    r = await get_redis()
+    results = await r.xread({'user_profile_updates': last_id}, count=10, block=5000)
+    if not results:
+        return []
+    # results = [['user_profile_updates', [(id, {fields}), ...]]]
+    return results[0][1]

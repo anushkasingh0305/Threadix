@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.core.dependencies import get_current_user, require_role
+from app.core.security import create_access_token, create_refresh_token
 from app.db.models import UserRole
 from app.services.user_service import update_user_profile, change_user_password, get_user_by_username, get_user_profile
 from app.repositories.user_repository import UserRepository
 from app.db.schemas import ChangePassword, UserProfile
+from app.db.redis import set_key
+import hashlib
 
 router = APIRouter()
 
@@ -19,7 +23,23 @@ async def update_profile(
 ):
     try:
         user = await update_user_profile(db, user_id, username, bio, file)
-        return {"message": "Profile updated"}
+
+        # Re-issue JWT tokens with fresh claims so downstream services get updated info
+        access_token = create_access_token({
+            "sub": str(user.id),
+            "role": user.role.value,
+            "username": user.username,
+            "avatar_url": user.avatar_url,
+            "email": user.email,
+        })
+        refresh_token = create_refresh_token({"sub": str(user.id)})
+        hashed = hashlib.sha256(refresh_token.encode()).hexdigest()
+        await set_key(f"refresh:{user.id}", hashed, expire=7*24*60*60)
+
+        response = JSONResponse({"message": "Profile updated"})
+        response.set_cookie("access_token", access_token, httponly=True)
+        response.set_cookie("refresh_token", refresh_token, httponly=True)
+        return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -90,6 +110,20 @@ async def set_user_role(
     user.role = role
     await db.commit()
     return {"message": f"{username} is now {role.value}"}
+
+
+@router.delete("/delete/{user_id}")
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_role(["admin"]))
+):
+    user = await UserRepository.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_deleted = True
+    await db.commit()
+    return {"message": f"User {user.username} deleted"}
 
 
 # ─── Admin endpoints ──────────────────────────────────────────────────────────

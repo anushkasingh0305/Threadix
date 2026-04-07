@@ -7,6 +7,9 @@ export const threadsApi = {
   getAll: (params) =>
     apiClient.get('/api/threads/', { params }),
 
+  getByUser: (username, params) =>
+    apiClient.get(`/api/threads/user/${username}`, { params }),
+
   getOne: (id) => apiClient.get(`/api/threads/${id}`),
 
   create: (data) =>

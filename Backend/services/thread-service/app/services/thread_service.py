@@ -41,6 +41,7 @@ async def get_thread(db: AsyncSession, thread_id: int,
 
     # Increment view count (incremental, not snapshot)
     await ThreadRepository.increment_view(db, thread_id)
+    await db.refresh(thread)
 
     # Check if user has liked
     user_has_liked = False

@@ -42,3 +42,23 @@ async def toggle_thread_like(db: AsyncSession, thread_id: int,
     })
 
     return {'liked': liked, 'new_count': new_count}
+
+
+async def toggle_comment_like(db: AsyncSession, comment_id: int,
+                              user: CurrentUser) -> dict:
+    from app.repositories.comment_repository import CommentRepository
+    comment = await CommentRepository.get_by_id(db, comment_id)
+    if not comment or comment.is_deleted:
+        raise NotFoundError('Comment')
+
+    existing = await LikeRepository.get_comment_like(db, user.id, comment_id)
+    if existing:
+        await LikeRepository.remove_comment_like(db, user.id, comment_id)
+        liked = False
+        new_count = comment.like_count - 1
+    else:
+        await LikeRepository.add_comment_like(db, user.id, comment_id)
+        liked = True
+        new_count = comment.like_count + 1
+
+    return {'liked': liked, 'new_count': new_count}

@@ -24,8 +24,11 @@ export function ThreadCard({ thread }) {
           {/* Author row */}
           <div className='flex items-center gap-2 mb-2'>
             <div className='w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center
-                            text-xs font-medium text-blue-700 flex-shrink-0'>
-              {thread.author.username.slice(0, 2).toUpperCase()}
+                            text-xs font-medium text-blue-700 flex-shrink-0 overflow-hidden'>
+              {thread.author.avatar_url
+                ? <img src={thread.author.avatar_url} alt={thread.author.username}
+                    className='w-6 h-6 rounded-full object-cover' />
+                : thread.author.username.slice(0, 2).toUpperCase()}
             </div>
             <Link to={`/profile/${thread.author.username}`}
               className='text-sm font-medium text-gray-900 hover:text-brand'>
@@ -66,10 +69,10 @@ export function ThreadCard({ thread }) {
               <Heart className='w-3.5 h-3.5' fill={thread.user_has_liked ? 'currentColor' : 'none'} />
               {thread.like_count}
             </button>
-            <span className='flex items-center gap-1'>
+            <Link to={`/threads/${thread.id}`} className='flex items-center gap-1 transition hover:text-blue-500'>
               <MessageCircle className='w-3.5 h-3.5' />
               {thread.comment_count}
-            </span>
+            </Link>
             <span className='flex items-center gap-1'>
               <Eye className='w-3.5 h-3.5' />
               {thread.view_count}
