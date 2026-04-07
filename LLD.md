@@ -765,11 +765,12 @@ async def list_users(limit: int = 50, offset: int = 0, ...):
 `func.count()` calls `COUNT(*)` in SQL. `select_from(User)` tells SQLAlchemy which table to count. Two separate queries: one for total count (for pagination metadata), one for the actual page of results.
 
 ```python
-@router.patch("/{user_id}/role")
-async def patch_user_role(user_id: int, body: dict, ...):
-    user.role = UserRole(body.get("role"))
+@router.put("/role/{username}")
+async def set_user_role(username: str, role: UserRole, ...):
+    user = await UserRepository.get_by_username(db, username)
+    user.role = role
 ```
-`UserRole(body.get("role"))` tries to construct a `UserRole` enum from the submitted string. If the string is not `"admin"`, `"moderator"`, or `"member"`, the `ValueError` is caught and returns 400 Bad Request.
+`UserRole` is the enum type — FastAPI validates the submitted value automatically. If the string is not `"admin"`, `"moderator"`, or `"member"`, a 422 Unprocessable Entity is returned.
 
 ---
 
@@ -1247,15 +1248,28 @@ export const apiClient = axios.create({
 ```js
 apiClient.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      window.location.href = '/login'
+  async (err) => {
+    const original = err.config
+    if (err.response?.status === 401 && !original._retry) {
+      original._retry = true
+      try {
+        await apiClient.post('/api/auth/auth/refresh')
+        return apiClient(original)
+      } catch {
+        localStorage.removeItem('threadix-auth')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   }
 )
 ```
-Response interceptor: if any API call returns 401 Unauthorized (token expired), redirect to login. `window.location.href = '/login'` does a full page navigation, which clears in-memory state. `return Promise.reject(err)` re-throws so individual callers can also catch it if needed.
+Response interceptor with **automatic token refresh**. When any API call returns 401 (access token expired), the interceptor:
+1. Sets `_retry = true` on the original request config to prevent infinite retry loops
+2. Calls `POST /api/auth/auth/refresh` which reads the `refresh_token` cookie and issues new cookies
+3. If refresh succeeds, retries the original request with `apiClient(original)` — the new cookies are automatically sent
+4. If refresh fails (refresh token also expired after 7 days), clears the Zustand `threadix-auth` localStorage entry and redirects to `/login`
+5. `return Promise.reject(err)` re-throws for non-401 errors so individual callers can handle them
 
 ---
 

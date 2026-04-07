@@ -80,7 +80,7 @@ Threadix is a full-stack discussion platform. Users create threaded discussions,
 
 | Service | Port | Owns | Primary Duty |
 |---------|------|------|-------------|
-| **Frontend** | 5173 | — | React SPA: renders UI, manages routing, auth state, data fetching |
+| **Frontend** | 5173 | — | React SPA: renders UI, manages routing, auth state, data fetching, admin/mod dashboards |
 | **Gateway** | 8080 | — | Single entry point: HTTP proxy + WebSocket bidirectional proxy |
 | **Auth Service** | 8000 | `threadix_auth` DB | Registration, login, JWT issuance, token rotation, profile, role management |
 | **Thread Service** | 8001 | `threadix_thread` DB | Thread + comment CRUD, likes, tags, search, feed ranking, Redis pub/sub publish |
@@ -98,7 +98,7 @@ Threadix is a full-stack discussion platform. Users create threaded discussions,
 | Server state | React Query v5 | Caching, pagination, mutations |
 | Routing | React Router v6 | Nested routes, outlet-based guards |
 | Styling | Tailwind CSS v3 | Utility-first, no custom CSS overhead |
-| HTTP client | axios | Interceptors for 401 redirect, withCredentials |
+| HTTP client | axios | Interceptors for 401 auto-refresh + retry, withCredentials |
 | Backend | FastAPI (Python) | Async, automatic OpenAPI docs, Pydantic validation |
 | DB ORM | SQLAlchemy async | Typed models, async queries |
 | Migrations | Alembic (auth only) | Schema versioning for auth service |
@@ -154,6 +154,23 @@ Browser
   → React Router navigates to /feed
 ```
 
+### Pattern B2 — Automatic token refresh (401 interceptor)
+
+```
+Browser
+  → Any API call returns 401 (access_token expired)
+
+Axios interceptor (client.js)
+  → Sets _retry flag on the original request
+  → POST /api/auth/auth/refresh
+  → Auth service verifies refresh_token cookie
+  → Issues new access_token + refresh_token cookies
+  → Axios retries the original request automatically
+  → If refresh also fails (7-day token expired)
+      → Clear Zustand localStorage ('threadix-auth')
+      → Redirect to /login
+```
+
 ### Pattern C — Real-time notification (like a thread)
 
 ```
@@ -180,7 +197,27 @@ Notification Service (background)
       NO  → email delivery not implemented (logged, silently skipped)
 ```
 
-### Pattern D — File upload with media
+### Pattern D — Profile update with cross-service sync
+
+```
+Browser
+  → PUT /api/auth/user/profile (multipart: username, bio, avatar file)
+
+Auth Service
+  → Upload avatar to Cloudinary (overwrite=True, invalidate=True)
+  → Update user row in threadix_auth DB
+  → Re-issue JWT cookies with fresh claims (avatar_url, username)
+  → Publish to Redis Stream: XADD user_profile_updates {user_id, username, avatar_url}
+  → Return updated profile
+
+Thread Service (background worker)
+  → _profile_sync_worker() runs as asyncio.create_task in lifespan
+  → XREAD BLOCK 5000 on user_profile_updates stream
+  → On new message: UPDATE users_cache SET username=..., avatar_url=... WHERE id=...
+  → users_cache now has fresh data for thread/comment author display
+```
+
+### Pattern E — File upload with media
 
 ```
 Browser
@@ -283,7 +320,7 @@ To avoid expensive JOIN queries on hot read paths, several counters are stored r
 | `threads.comment_count` | threads table | Create/delete comment | Yes |
 | `comments.like_count` | comments table | Like/unlike comment | Yes |
 | `user_tag_affinity.score` | affinity table | Like, comment | Yes (UPSERT) |
-| `users_cache.username/role` | thread & notif DBs | Every request (JWT upsert) | Yes (ON CONFLICT) |
+| `users_cache.username/role` | thread & notif DBs | Every request (JWT upsert) + Redis stream | Yes (ON CONFLICT) |
 
 All counter updates use database-side arithmetic (`col = col + 1`) — never read-increment-write in Python, which would create race conditions under concurrent requests.
 
@@ -316,8 +353,8 @@ Gateway bidirectional proxy:
 ## 9. Redis Pub/Sub Event Bus
 
 ```
-Publisher              Channel                  Subscriber
-──────────────────────────────────────────────────────────
+Publisher              Channel / Stream             Subscriber
+─────────────────────────────────────────────────────────────────
 thread-service    →  threads              →  FeedPage WS client
 thread-service    →  thread:{id}:comments →  ThreadDetailPage WS client
 thread-service    →  thread:{id}:likes    →  ThreadDetailPage WS client
@@ -325,6 +362,8 @@ thread-service    →  user:{id}:notifs     →  Notification service consumer
                                               (psubscribed to user:*:notifs)
 notif-service     →  user:{id}:ws         →  Notification WS handler
                                               → browser WebSocket
+auth-service      →  user_profile_updates →  Thread service background worker
+                     (Redis Stream XADD)     (XREAD BLOCK consumer)
 ```
 
 ---
@@ -428,8 +467,7 @@ docker compose up:
 | GET | /user/{username} | — | Get any user's public profile |
 | GET | /user/list | admin | Paginated user list |
 | PUT | /user/role/{username} | admin | Change role by username |
-| PATCH | /user/{id}/role | admin | Change role by ID |
-| DELETE | /user/{id} | admin | Soft-delete user |
+| DELETE | /user/delete/{user_id} | admin | Soft-delete user |
 
 ### Thread Service
 
@@ -438,15 +476,16 @@ docker compose up:
 | GET | /threads/feed | cookie | Personalized feed |
 | GET | /threads/ | — | All threads, chronological |
 | POST | /threads/ | cookie | Create thread (multipart + media) |
-| GET | /threads/{id} | optional | Get thread (increments views) |
-| PATCH | /threads/{id} | author | Edit thread |
-| DELETE | /threads/{id} | author/mod | Soft-delete thread |
+| GET | /threads/{id} | cookie | Get thread (increments views) |
+| PATCH | /threads/{id} | author/admin | Edit thread |
+| DELETE | /threads/{id} | author/mod/admin | Soft-delete thread |
+| GET | /threads/stats | — | Thread + comment counts |
 | POST | /threads/{id}/like | cookie | Toggle like |
 | GET | /threads/{id}/comments/ | — | Top-level comments |
 | POST | /threads/{id}/comments/ | cookie | Create comment |
 | GET | /threads/{id}/comments/{cid}/children | — | Load child replies |
-| PATCH | /threads/{id}/comments/{cid} | author | Edit comment |
-| DELETE | /threads/{id}/comments/{cid} | author/mod | Delete comment |
+| PATCH | /threads/{id}/comments/{cid} | author/admin | Edit comment |
+| DELETE | /threads/{id}/comments/{cid} | author/mod/admin | Delete comment |
 | POST | /threads/{id}/comments/{cid}/like | cookie | Toggle comment like |
 | GET | /search/threads?q= | — | Full-text search |
 | GET | /search/users?q= | cookie | @mention autocomplete |
@@ -477,3 +516,35 @@ docker compose up:
 | **Notification cleanup** | Add a scheduled job to delete notifications older than 90 days to prevent the notifications table growing unboundedly. |
 | **Push notifications** | Add Web Push API support (via VAPID keys) for notifications even when the browser tab is closed. |
 | **Notification preferences** | Add a `notification_preferences` table so users can opt out of specific notification types (e.g., disable like notifications). |
+
+---
+
+## 15. Testing
+
+| Service | Test File(s) | Tests | Coverage |
+|---------|-------------|-------|----------|
+| **Auth Service** | `test_hashing.py`, `test_security.py`, `test_schemas.py`, `test_auth_service.py` | 27 | Hashing (4), JWT create/decode/expiry (5), schema validation (10), auth logic — register/login/refresh/logout (8) |
+| **Thread Service** | `test_thread_permissions.py`, `test_comment_permissions.py`, `test_schemas.py` | 29 | Thread edit/delete permission matrix (9), comment edit/delete permission matrix (11), schema validation (9) |
+| **Notification Service** | `test_schemas.py`, `test_notification_repository.py`, `test_delivery.py`, `test_consumer.py` | 15 | Schema validation (4), self-notification guard + CRUD (4), delivery routing online/offline (3), channel regex (4) |
+| **Gateway** | `test_routing.py` | 9 | All 6 route mappings, unknown route 404, upstream down 503 |
+| **Total** | **12 test files** | **80** | All services covered |
+
+Tests use `pytest` + `pytest-asyncio` with `unittest.mock` (AsyncMock, patch). No live database or Redis required — all external dependencies are mocked.
+
+---
+
+## 16. Role-Based Permission Model
+
+| Action | Owner | Moderator | Admin |
+|--------|-------|-----------|-------|
+| Edit own thread/comment | ✅ | ✅ (own only) | ✅ |
+| Edit others' thread/comment | ❌ | ❌ | ✅ |
+| Delete own thread/comment | ✅ | ✅ (own only) | ✅ |
+| Delete others' thread/comment | ❌ | ✅ | ✅ |
+| Access admin dashboard (`/admin`) | ❌ | ❌ | ✅ |
+| Access mod dashboard (`/mod`) | ❌ | ✅ | ✅ |
+| Manage user roles | ❌ | ❌ | ✅ |
+| Delete users | ❌ | ❌ | ✅ |
+
+**Frontend enforcement:** `canEdit = isOwner || isAdmin`, `canDelete = isOwner || isModerator` (where `isModerator` includes admin via `useRole()` hook).  
+**Backend enforcement:** `update_thread`/`update_comment` check `user.role != 'admin'`; `delete_thread`/`delete_comment` check `user.role not in ('admin', 'moderator')`.
