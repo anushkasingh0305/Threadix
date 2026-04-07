@@ -4,7 +4,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { commentsApi } from '@/api/comments'
 import { useAuthStore } from '@/store/authStore'
-import { useRole } from '@/hooks/useRole'
+import { useRole }     from '@/hooks/useRole'
 import { CommentInput } from './CommentInput'
 import { MAX_COMMENT_DEPTH } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -16,7 +16,7 @@ export function CommentNode({ comment, threadId }) {
   const [editing,      setEditing]      = useState(false)
   const [editContent,  setEditContent]  = useState(comment.content)
   const { user }        = useAuthStore()
-  const { isModerator } = useRole()
+  const { isModerator, isAdmin } = useRole()
   const qc = useQueryClient()
 
   const { data: children, isFetching } = useQuery({
@@ -51,7 +51,7 @@ export function CommentNode({ comment, threadId }) {
     },
   })
 
-  const canEdit   = user && user.id === comment.author?.id
+  const canEdit   = user && (user.id === comment.author?.id || isAdmin)
   const canDelete = user && (user.id === comment.author?.id || isModerator)
 
   return (

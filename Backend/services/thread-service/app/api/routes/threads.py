@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from app.db.database import get_db
 from app.core.dependencies import get_current_user, rate_limit, CurrentUser
 from app.db.schemas import ThreadCreate, ThreadUpdate
+from app.db.models import Thread, Comment
 from app.services.thread_service import create_thread, get_thread, update_thread, delete_thread
 from app.services.media_service import upload_media
 from app.services.feed_service import get_feed
@@ -37,6 +39,13 @@ async def personalized_feed(
     user: CurrentUser = Depends(get_current_user),
 ):
     return await get_feed(db, user.id, limit, offset)
+
+
+@router.get('/stats')
+async def thread_stats(db: AsyncSession = Depends(get_db)):
+    threads = await db.scalar(select(func.count()).where(Thread.is_deleted == False))
+    comments = await db.scalar(select(func.count()).where(Comment.is_deleted == False))
+    return {'threads': threads, 'comments': comments}
 
 
 @router.get('/')

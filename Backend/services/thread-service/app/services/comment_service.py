@@ -128,6 +128,6 @@ async def update_comment(db: AsyncSession, comment_id: int,
         raise NotFoundError('Comment')
     if comment.is_deleted:
         raise ValidationError('Cannot edit a deleted comment')
-    if comment.user_id != user.id:
+    if comment.user_id != user.id and user.role != 'admin':
         raise ForbiddenError('You can only edit your own comments')
     await CommentRepository.update_content(db, comment_id, data.content)

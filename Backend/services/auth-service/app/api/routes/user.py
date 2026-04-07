@@ -13,6 +13,8 @@ import hashlib
 
 router = APIRouter()
 
+# ─── Own-profile endpoints ────────────────────────────────────────────────────
+
 @router.put("/profile")
 async def update_profile(
     username: str | None = Form(None),
@@ -24,7 +26,6 @@ async def update_profile(
     try:
         user = await update_user_profile(db, user_id, username, bio, file)
 
-        # Re-issue JWT tokens with fresh claims so downstream services get updated info
         access_token = create_access_token({
             "sub": str(user.id),
             "role": user.role.value,
@@ -52,33 +53,9 @@ async def get_my_profile(
     try:
         user = await get_user_profile(db, user_id)
         return UserProfile(
-            id=user.id,
-            email=user.email,
-            username=user.username,
-            role=user.role.value,
-            avatar_url=user.avatar_url,
-            bio=user.bio,
-            created_at=str(user.created_at)
-        )
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.get("/{username}", response_model=UserProfile)
-async def get_by_username(
-    username: str,
-    db: AsyncSession = Depends(get_db)
-):
-    try:
-        user = await get_user_by_username(db, username)
-        return UserProfile(
-            id=user.id,
-            email=user.email,
-            username=user.username,
-            role=user.role.value,
-            avatar_url=user.avatar_url,
-            bio=user.bio,
-            created_at=str(user.created_at)
+            id=user.id, email=user.email, username=user.username,
+            role=user.role.value, avatar_url=user.avatar_url,
+            bio=user.bio, created_at=str(user.created_at)
         )
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -95,6 +72,38 @@ async def change_password(
         return {"message": "Password updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── Admin endpoints (MUST be before /{username} catch-all) ───────────────────
+
+@router.get("/list")
+async def list_users(
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_role(["admin"]))
+):
+    from sqlalchemy import select, func
+    from app.db.models import User
+    total = await db.scalar(select(func.count()).select_from(User).where(User.is_deleted == False))
+    mods = await db.scalar(
+        select(func.count()).select_from(User)
+        .where(User.is_deleted == False, User.role.in_([UserRole.moderator, UserRole.admin]))
+    )
+    result = await db.execute(
+        select(User).where(User.is_deleted == False)
+        .order_by(User.created_at.desc()).limit(limit).offset(offset)
+    )
+    users = result.scalars().all()
+    return {
+        "total": total,
+        "mods": mods,
+        "users": [
+            {"id": u.id, "username": u.username, "email": u.email,
+             "role": u.role.value, "created_at": str(u.created_at)}
+            for u in users
+        ]
+    }
 
 
 @router.put("/role/{username}")
@@ -126,67 +135,20 @@ async def delete_user(
     return {"message": f"User {user.username} deleted"}
 
 
-# ─── Admin endpoints ──────────────────────────────────────────────────────────
+# ─── Public profile (catch-all — MUST be last) ───────────────────────────────
 
-@router.get("/list")
-async def list_users(
-    limit: int = 50,
-    offset: int = 0,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_role(["admin"]))
+@router.get("/{username}", response_model=UserProfile)
+async def get_by_username(
+    username: str,
+    db: AsyncSession = Depends(get_db)
 ):
-    from sqlalchemy import select, func
-    from app.db.models import User
-    total = await db.scalar(select(func.count()).select_from(User).where(User.is_deleted == False))
-    result = await db.execute(
-        select(User).where(User.is_deleted == False)
-        .order_by(User.created_at.desc()).limit(limit).offset(offset)
-    )
-    users = result.scalars().all()
-    return {
-        "total": total,
-        "users": [
-            {"id": u.id, "username": u.username, "email": u.email,
-             "role": u.role.value, "created_at": str(u.created_at)}
-            for u in users
-        ]
-    }
-
-
-@router.patch("/{user_id}/role")
-async def patch_user_role(
-    user_id: int,
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_role(["admin"]))
-):
-    from app.db.models import User
-    from sqlalchemy import select
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
     try:
-        user.role = UserRole(body.get("role"))
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid role")
-    await db.commit()
-    return {"message": f"Role updated to {user.role.value}"}
-
-
-@router.delete("/{user_id}")
-async def delete_user(
-    user_id: int,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_role(["admin"]))
-):
-    from app.db.models import User
-    from sqlalchemy import select
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user.is_deleted = True
-    await db.commit()
-    return {"message": "User deleted"}
+        user = await get_user_by_username(db, username)
+        return UserProfile(
+            id=user.id, email=user.email, username=user.username,
+            role=user.role.value, avatar_url=user.avatar_url,
+            bio=user.bio, created_at=str(user.created_at)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 

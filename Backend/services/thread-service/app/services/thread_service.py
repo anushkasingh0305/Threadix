@@ -57,8 +57,8 @@ async def update_thread(db: AsyncSession, thread_id: int,
     thread = await ThreadRepository.get_by_id(db, thread_id)
     if not thread or thread.is_deleted:
         raise NotFoundError('Thread')
-    # Only author, moderator, admin can edit
-    if thread.user_id != user.id and user.role not in ('admin', 'moderator'):
+    # Only author or admin can edit
+    if thread.user_id != user.id and user.role != 'admin':
         raise ForbiddenError('You can only edit your own threads')
     # Validate tags if provided
     if data.tag_ids is not None:

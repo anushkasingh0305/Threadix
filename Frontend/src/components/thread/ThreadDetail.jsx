@@ -10,15 +10,16 @@ import { cn } from '@/lib/utils'
 
 export function ThreadDetail({ thread }) {
   const { user }        = useAuthStore()
-  const { isModerator } = useRole()
+  const { isModerator, isAdmin } = useRole()
   const qc = useQueryClient()
 
   const [editing,   setEditing]   = useState(false)
   const [editTitle, setEditTitle] = useState(thread.title)
   const [editDesc,  setEditDesc]  = useState(thread.description)
 
-  const canEdit   = user && Number(user.id) === Number(thread.author.id)
-  const canDelete = user && (Number(user.id) === Number(thread.author.id) || isModerator)
+  const isOwner   = user && Number(user.id) === Number(thread.author.id)
+  const canEdit   = isOwner || isAdmin
+  const canDelete = isOwner || isModerator
 
   const likeMut = useMutation({
     mutationFn: () => threadsApi.toggleLike(thread.id),
