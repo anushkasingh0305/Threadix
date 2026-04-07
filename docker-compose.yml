@@ -1,0 +1,157 @@
+services:
+
+  # --- Databases ------------------------------------------------------------
+  postgres-auth:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: threadix_auth
+      POSTGRES_PASSWORD: threadix_auth_secret
+      POSTGRES_DB: threadix_auth
+    volumes:
+      - pgdata_auth:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threadix_auth -d threadix_auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks: [threadix]
+
+  postgres-thread:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: threadix_thread
+      POSTGRES_PASSWORD: threadix_thread_secret
+      POSTGRES_DB: threadix_thread
+    volumes:
+      - pgdata_thread:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threadix_thread -d threadix_thread"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks: [threadix]
+
+  postgres-notification:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: threadix_notification
+      POSTGRES_PASSWORD: threadix_notification_secret
+      POSTGRES_DB: threadix_notification
+    volumes:
+      - pgdata_notif:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threadix_notification -d threadix_notification"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks: [threadix]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass threadix_redis_secret
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "threadix_redis_secret", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks: [threadix]
+
+  # --- Auth Service ---------------------------------------------------------
+  auth-service:
+    build:
+      context: ./Backend/services/auth-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./Backend/services/auth-service/.env
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [threadix]
+
+  # --- Thread Service -------------------------------------------------------
+  thread-service:
+    build:
+      context: ./Backend/services/thread-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./Backend/services/thread-service/.env
+    depends_on:
+      postgres-thread:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [threadix]
+
+  # --- Notification Service -------------------------------------------------
+  notification-service:
+    build:
+      context: ./Backend/services/notification-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    env_file:
+      - ./Backend/services/notification-service/.env
+    depends_on:
+      postgres-notification:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [threadix]
+
+  # --- API Gateway ----------------------------------------------------------
+  gateway:
+    build:
+      context: ./Backend/gateway
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - auth-service
+      - thread-service
+      - notification-service
+    networks: [threadix]
+
+  # --- Frontend -------------------------------------------------------------
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: "http://localhost:8080"
+    networks: [threadix]
+
+volumes:
+  pgdata_auth:
+  pgdata_thread:
+  pgdata_notif:
+  redisdata:
+
+networks:
+  threadix:
+    driver: bridge

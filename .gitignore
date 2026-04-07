@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.uv/
+
+# Node
+node_modules/
+dist/
+
+*_DOCUMENTATION.md
+
+# Environment files — NEVER commit these
+.env
+*.env
+!*.env.example
+
+# Alembic
+alembic/versions/*.pyc
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.override.yml
