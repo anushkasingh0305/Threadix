@@ -7,12 +7,20 @@ export const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Auto-redirect to login on 401
+// Auto-refresh access token on 401, then retry the original request
 apiClient.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      window.location.href = '/login'
+  async (err) => {
+    const original = err.config
+    if (err.response?.status === 401 && !original._retry) {
+      original._retry = true
+      try {
+        await apiClient.post('/api/auth/auth/refresh')
+        return apiClient(original)
+      } catch {
+        localStorage.removeItem('threadix-auth')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   }
